@@ -1,13 +1,21 @@
 package com.luozm.luckyboard;
 
+import android.animation.Animator;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.Region;
 import android.util.AttributeSet;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +29,9 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     private static final int STATE_IDEL = 0;
     private static final int STATE_RUNNING = 1;
-    private static final int STATE_RESULT = 3;
+    private static final int STATE_RESULT = 2;
+
+    private int mState = STATE_IDEL;
 
     private List<LuckyAward> awards;
     private LuckyAward avAward;  //安慰奖
@@ -31,7 +41,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     private boolean isDrawing;
     private Thread drawThread;
-    private int currentPosition = 11;
+    private volatile int currentPosition = 11;
     private int totalSize;  //奖品总数
 
 
@@ -40,12 +50,26 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private int verticalOffset;
     private int horizontalOffset;
 
-    List<RectF> blocksArea;   //存储块区域位置
+    private volatile List<RectF> blocksArea;   //存储块区域位置
 
 
     private Paint mBorderPaint;
     private Paint mGoButtonPaint;
     private Paint mCurrentBlockPaint;
+    private Paint mAwardHoverPaint;
+
+
+    private Path mButtonPath;   //中间按钮的Path
+    private Region mButtonRegion;
+
+    private ObjectAnimator mRunningAnimator;   //抽奖时的动画
+    private ValueAnimator mResultingAnimator;  //产生结果时的动画
+
+    private ResultCallback mResultCallback;
+
+    public interface ResultCallback{
+        void result(LuckyAward award);
+    }
 
 
     public LuckyBoard(Context context) {
@@ -75,6 +99,8 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         mGoButtonPaint = new Paint();
         mCurrentBlockPaint = new Paint();
         mCurrentBlockPaint.setColor(Color.parseColor("#5F1F9564"));
+        mAwardHoverPaint = new Paint();
+        mAwardHoverPaint.setColor(Color.parseColor("#AFA97563"));
 
     }
 
@@ -103,6 +129,15 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     }
 
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        mButtonPath = new Path();
+        mButtonPath.addCircle(getWidth() / 2, getHeight() / 2, Util.dp2px(getContext(), 25), Path.Direction.CCW);
+        mButtonRegion = new Region();
+        Region clip = new Region(0, 0, w, h);
+        mButtonRegion.setPath(mButtonPath, clip);
+    }
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
@@ -113,47 +148,62 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-
+        hasDrawn = false;
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         isDrawing = false;
+        hasDrawn = false;
         mHolder.removeCallback(this);
         mHolder = null;
         mCanvas = null;
     }
 
+    boolean hasDrawn = false;
+
     @Override
     public void run() {
         while (isDrawing) {
+            if (mState == STATE_IDEL && hasDrawn) {
+                continue;
+            }
             mCanvas = mHolder.lockCanvas();
             drawBackGround();
             drawPanel();
             drawGoButton();
-            drawCurrentBlock();
+            if (mState == STATE_RUNNING || mState == STATE_RESULT) {
+                drawRunning();
+            }
+            hasDrawn = true;
             mHolder.unlockCanvasAndPost(mCanvas);
         }
     }
 
-    private void drawCurrentBlock() {
+    private void drawRunning() {
         mCanvas.save();
         mCanvas.translate(horizontalOffset, verticalOffset);
-        RectF rectf = blocksArea.get(currentPosition);
-        mCanvas.drawRoundRect(rectf, 10, 10, mCurrentBlockPaint);
+        if (currentPosition == awards.size()) {
+            currentPosition -= 1;
+        }
+        RectF rect = blocksArea.get(currentPosition);
+        mCanvas.drawRoundRect(rect, 20, 20, mAwardHoverPaint);
         mCanvas.restore();
+
     }
+
 
     private void drawGoButton() {
         mCanvas.save();
-        mCanvas.translate(getWidth() / 2, getHeight() / 2);
         mGoButtonPaint.setColor(Color.RED);
-        mCanvas.drawCircle(0, 0, Util.dp2px(getContext(), 25), mGoButtonPaint);
+        mGoButtonPaint.setStyle(Paint.Style.FILL);
+        mCanvas.drawPath(mButtonPath, mGoButtonPaint);
+        mGoButtonPaint.setStyle(Paint.Style.STROKE);
         mGoButtonPaint.setColor(Color.WHITE);
         mGoButtonPaint.setStrokeWidth(10);
         mGoButtonPaint.setTextAlign(Paint.Align.CENTER);
         mGoButtonPaint.setTextSize(Util.dp2px(getContext(), 24));
-        mCanvas.drawText("GO", 0, Util.dp2px(getContext(), 12), mGoButtonPaint);
+        mCanvas.drawText("GO", getWidth() / 2, getHeight() / 2 + Util.dp2px(getContext(), 12), mGoButtonPaint);
         mCanvas.restore();
     }
 
@@ -183,6 +233,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
             }
         }
     }
+
 
     private void generateBlockArea() {
         blocksArea = new ArrayList<>();
@@ -235,7 +286,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         for (LuckyAward award : awards) {
             totalRate += award.getRate();
         }
-        if (totalRate >= 1) {
+        if (totalRate > 1) {
             throw new IllegalStateException("Awards' total rate must below 1");
         }
     }
@@ -244,12 +295,37 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         this.avAward = avAward;
     }
 
+
+    public void luckyGo() {
+        mState = STATE_RUNNING;
+        //由于属性动画中，当达到最终值会立刻跳到下一次循环，所以需要补1
+        mRunningAnimator = ObjectAnimator.ofInt(this, "currentPosition", 0, awards.size());
+        mRunningAnimator.setRepeatMode(ValueAnimator.RESTART);
+        mRunningAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        mRunningAnimator.setDuration(600);
+        mRunningAnimator.setInterpolator(new LinearInterpolator());
+        mRunningAnimator.start();
+    }
+
     //补充安慰奖
     private void fillAwards() throws CloneNotSupportedException {
         int awardSize = awards.size();
+        //若正式奖品刚好等于8/12/20时且总概率小于1的话，升级到下一个抽奖规模
+        float totalRate = 0;
+        for (LuckyAward award : awards) {
+            totalRate += award.getRate();
+        }
+        if (totalRate < 1) {
+            if (awardSize == 8) {
+                awardSize = 12;
+            } else if (awardSize == 12) {
+                awardSize = 20;
+            }
+        }
+        //计算安慰奖概率并填充到奖品池
         Random random = new Random();
         float rate = computeAvAwardRate(awardSize);
-        if (awardSize < 8) {
+        if (awardSize <= 8) {
             while (awards.size() != 8) {
                 int insertIndex = random.nextInt(awards.size());
                 LuckyAward award = (LuckyAward) avAward.clone();
@@ -257,7 +333,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
                 awards.add(insertIndex, award);
             }
             totalSize = 8;
-        } else if (awardSize < 12) {
+        } else if (awardSize <= 12) {
             while (awards.size() != 12) {
                 int insertIndex = random.nextInt(awards.size());
                 LuckyAward award = (LuckyAward) avAward.clone();
@@ -265,7 +341,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
                 awards.add(insertIndex, award);
             }
             totalSize = 12;
-        } else if (awardSize < 20) {
+        } else if (awardSize <= 20) {
             while (awards.size() != 12) {
                 int insertIndex = random.nextInt(awards.size());
                 LuckyAward award = (LuckyAward) avAward.clone();
@@ -276,6 +352,14 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         }
     }
 
+    private void setCurrentPosition(int pos) {
+        this.currentPosition = pos;
+    }
+
+    private int getCurrentPosition() {
+        return this.currentPosition;
+    }
+
     //根据奖品调整安慰奖概率
     private float computeAvAwardRate(int awardSize) {
         float totalRate = 0;
@@ -283,14 +367,116 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         for (LuckyAward award : awards) {
             totalRate += award.getRate();
         }
-        if (awardSize <= 8) {
+        if (awardSize < 8) {
             resultRate = (1 - totalRate) / (8 - awardSize);
-        } else if (awardSize <= 12) {
+        } else if (awardSize < 12) {
             resultRate = (1 - totalRate) / (12 - awardSize);
-        } else if (awardSize <= 20) {
+        } else if (awardSize < 20) {
             resultRate = (1 - totalRate) / (20 - awardSize);
         }
         return resultRate;
+    }
+
+
+    boolean isButtonDown;
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        int x = (int) event.getX();
+        int y = (int) event.getY();
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                if (mButtonRegion.contains(x, y)) {
+                    isButtonDown = true;
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+                if (mButtonRegion.contains(x, y) && isButtonDown) {
+                    if (mState == STATE_IDEL) {
+                        onGoButtonClick();
+                    } else if (mState == STATE_RUNNING) {
+                        onResultButtonClick();
+                    }
+                    isButtonDown = false;
+                }
+                break;
+        }
+        return true;
+    }
+
+    private void onResultButtonClick() {
+        luckyResult();
+    }
+
+
+    //从当前位置到最终位置的循环,卡在这里
+    private void luckyResult() {
+        mRunningAnimator.end();
+        mState = STATE_RESULT;
+        final int result = generateResult();
+        //最终值不是result是为了让插值器的周期能覆盖整个动画
+        mResultingAnimator = ValueAnimator.ofInt(1, awards.size() * 2 + result);
+        mResultingAnimator.setInterpolator(new DecelerateInterpolator());
+        int duration = (int) (2000 + (float) result / awards.size() * 1000);
+        mResultingAnimator.setDuration(duration);
+        mResultingAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                currentPosition = (int) animation.getAnimatedValue() % awards.size();
+            }
+        });
+        mResultingAnimator.addListener(new Animator.AnimatorListener() {
+            @Override
+            public void onAnimationStart(Animator animation) {
+
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                mState = STATE_IDEL;
+                if(mResultCallback!=null){
+                    mResultCallback.result(awards.get(result));
+                }
+            }
+
+            @Override
+            public void onAnimationCancel(Animator animation) {
+
+            }
+
+            @Override
+            public void onAnimationRepeat(Animator animation) {
+
+            }
+        });
+        mResultingAnimator.start();
+
+    }
+
+    private int generateResult() {
+        //产生抽奖结果
+        Random random = new Random();
+        float r = random.nextFloat();
+        float total = 0;
+        float lastTotal = 0;
+        int size = awards.size();
+        for (int i = 0; i < size; i++) {
+            total += awards.get(i).getRate();
+            if (r >= lastTotal && r <= total) {
+                return i;
+            }
+            lastTotal = total;
+        }
+        return -1;
+    }
+
+    //开始抽奖按钮按下
+    private void onGoButtonClick() {
+        luckyGo();
+    }
+
+    public void setmResultCallback(ResultCallback callback){
+        this.mResultCallback = callback;
     }
 }
 
