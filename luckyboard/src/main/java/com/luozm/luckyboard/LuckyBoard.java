@@ -60,8 +60,8 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private int blockBackgroundId;
     private int textSize;
     private int gapSize;
-    private int verticalOffset;
-    private int horizontalOffset;
+    private int verticalPadding;
+    private int horizontalPadding;
 
     private volatile List<RectF> blocksArea;   //存储块区域位置
 
@@ -121,9 +121,9 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         mHolder.addCallback(this);
         textSize = (int) (blockSize / 8f);
         gapSize = (int) (blockSize / 12f);
-        verticalOffset = Util.dp2px(getContext(), 0);
-        horizontalOffset = Util.dp2px(getContext(), 0);
-        //用于绘制块区域之间的间隔
+        verticalPadding = Util.dp2px(getContext(), 0);
+        horizontalPadding = Util.dp2px(getContext(), 0);
+
         mBorderPaint = new Paint();
         mBorderPaint.setStrokeWidth(3);
         mBorderPaint.setColor(Color.WHITE);
@@ -157,21 +157,22 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        //奖品规模为0时，设置宽高为0
         if (awards == null || awards.size() == 0) {
             setMeasuredDimension(0, 0);
         } else {
             int awardsSize = awards.size();
             int width;
             int height;
-            if (awardsSize <= 8) {
-                width = 2 * horizontalOffset + blockSize * 3;
-                height = (int) (2 * verticalOffset + blockSize * 3 * 0.75);
-            } else if (awardsSize <= 12) {
-                width = 2 * horizontalOffset + blockSize * 4;
-                height = (int) (2 * verticalOffset + blockSize * 4 * 0.75);
-            } else if (awardsSize <= 20) {
-                width = 2 * horizontalOffset + blockSize * 5;
-                height = (int) (2 * verticalOffset + blockSize * 5 * 0.75);
+            if (awardsSize <= 8) {//奖品规模为8
+                width = 2 * horizontalPadding + blockSize * 3;
+                height = (int) (2 * verticalPadding + blockSize * 3 * 0.75);
+            } else if (awardsSize <= 12) {//奖品规模为12
+                width = 2 * horizontalPadding + blockSize * 4;
+                height = (int) (2 * verticalPadding + blockSize * 4 * 0.75);
+            } else if (awardsSize <= 20) {//奖品规模为20
+                width = 2 * horizontalPadding + blockSize * 5;
+                height = (int) (2 * verticalPadding + blockSize * 5 * 0.75);
             } else {
                 throw new IllegalStateException("Awards Size must not be above of 20");
             }
@@ -244,7 +245,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     private void drawAwards() {
         mCanvas.save();
-        mCanvas.translate(horizontalOffset, verticalOffset);
+        mCanvas.translate(horizontalPadding, verticalPadding);
         int size = awards.size();
         for (int i = 0; i < size; i++) {
             //画奖品名字
@@ -278,7 +279,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     private void drawRunning() {
         mCanvas.save();
-        mCanvas.translate(horizontalOffset, verticalOffset);
+        mCanvas.translate(horizontalPadding, verticalPadding);
         if (currentPosition == awards.size()) {
             currentPosition -= 1;
         }
@@ -323,7 +324,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     private void drawPanel() {
         mCanvas.save();
-        mCanvas.translate(horizontalOffset, verticalOffset);
+        mCanvas.translate(horizontalPadding, verticalPadding);
         for (RectF rect : blocksArea) {
             //着色器
             mCanvas.drawRoundRect(rect, 20, 20, mBlockBgPaint);
