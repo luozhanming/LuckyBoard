@@ -4,12 +4,19 @@ import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.content.res.TypedArray;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Region;
+import android.graphics.Shader;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
@@ -43,11 +50,16 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private boolean isDrawing;
     private Thread drawThread;
     private volatile int currentPosition = -1;
-    private int totalSize;  //奖品总数
+    private int totalSize;  //奖品种类总数
+    private boolean enable = true;
 
 
     private int blockSize;   //每块奖品占的区域大小宽，高是其3/4
+    private int textColor;
+    private int backgroundId;
+    private int blockBackgroundId;
     private int textSize;
+    private int gapSize;
     private int verticalOffset;
     private int horizontalOffset;
 
@@ -55,19 +67,22 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
 
     private Paint mBorderPaint;
+    private Paint mBlockBgPaint;
     private Paint mGoButtonPaint;
-    private Paint mCurrentBlockPaint;
     private Paint mAwardHoverPaint;
     private Paint mAwardPaint;
 
 
     private Path mButtonPath;   //中间按钮的Path
     private Region mButtonRegion;
+    private Bitmap mBlockBg;  //块区背景
+    private Bitmap mBg;
 
     private ObjectAnimator mRunningAnimator;   //抽奖时的动画
     private ValueAnimator mResultingAnimator;  //产生结果时的动画
 
     private ResultCallback mResultCallback;
+
 
     public interface ResultCallback {
         void result(LuckyAward award);
@@ -84,26 +99,59 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     public LuckyBoard(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        parseAttrs(context, attrs, defStyleAttr);
         init();
     }
+
+    private void parseAttrs(Context context, AttributeSet attrs, int defStyleAttr) {
+        TypedArray ta = context.obtainStyledAttributes(attrs, R.styleable.LuckyBoard);
+        blockSize = ta.getDimensionPixelSize(R.styleable.LuckyBoard_blockSize,
+                Util.dp2px(getContext(), DEFAULT_BLOCKSIZE));
+        textColor = ta.getColor(R.styleable.LuckyBoard_textColor, Color.WHITE);
+        backgroundId = ta.getResourceId(R.styleable.LuckyBoard_background, R.drawable.timg_meitu_1);
+        blockBackgroundId = ta.getResourceId(R.styleable.LuckyBoard_blockBackground, R.drawable.timg_meitu_1);
+        if (backgroundId != 0) {
+            mBg = BitmapFactory.decodeResource(getResources(), backgroundId);
+        }
+    }
+
 
     private void init() {
         mHolder = getHolder();
         mHolder.addCallback(this);
-        blockSize = Util.dp2px(getContext(), DEFAULT_BLOCKSIZE);
-        textSize = Util.dp2px(getContext(), 12);
-        verticalOffset = Util.dp2px(getContext(), 10);
-        horizontalOffset = Util.dp2px(getContext(), 10);
+        textSize = (int) (blockSize / 8f);
+        gapSize = (int) (blockSize / 12f);
+        verticalOffset = Util.dp2px(getContext(), 0);
+        horizontalOffset = Util.dp2px(getContext(), 0);
+        //用于绘制块区域之间的间隔
         mBorderPaint = new Paint();
         mBorderPaint.setStrokeWidth(3);
-        mBorderPaint.setColor(Color.parseColor("#ffffff"));
+        mBorderPaint.setColor(Color.WHITE);
         mBorderPaint.setStyle(Paint.Style.STROKE);
+
+        mBlockBg = adaptBlockBgSize();
+        mBlockBgPaint = new Paint();
+        mBlockBgPaint.setShader(new BitmapShader(mBlockBg, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT));
         mGoButtonPaint = new Paint();
-        mCurrentBlockPaint = new Paint();
-        mCurrentBlockPaint.setColor(Color.parseColor("#5F1F9564"));
         mAwardHoverPaint = new Paint();
         mAwardHoverPaint.setColor(Color.parseColor("#AFA97563"));
         mAwardPaint = new Paint();
+
+        setZOrderOnTop(true);
+
+        mHolder.setFormat(PixelFormat.TRANSLUCENT);
+    }
+
+    //调整BlcokBg图片的大小以适应着色器
+    private Bitmap adaptBlockBgSize() {
+        mBlockBg = BitmapFactory.decodeResource(getResources(), blockBackgroundId);
+        Bitmap bitmap = Bitmap.createBitmap(blockSize, (int) (blockSize * 0.75f), Bitmap.Config.RGB_565);
+        Canvas canvas = new Canvas(bitmap);
+        Rect src = new Rect(0, 0, mBlockBg.getWidth(), mBlockBg.getHeight());
+        Rect dst = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+        canvas.drawBitmap(mBlockBg, src, dst, new Paint());
+        mBlockBg.recycle();
+        return bitmap;
     }
 
 
@@ -136,7 +184,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         mButtonPath = new Path();
-        mButtonPath.addCircle(getWidth() / 2, getHeight() / 2, Util.dp2px(getContext(), 25), Path.Direction.CCW);
+        mButtonPath.addCircle(getWidth() / 2, getHeight() / 2, (float) (blockSize * 0.75 / 2 - Util.dp2px(getContext(), 5)), Path.Direction.CCW);
         mButtonRegion = new Region();
         Region clip = new Region(0, 0, w, h);
         mButtonRegion.setPath(mButtonPath, clip);
@@ -176,14 +224,13 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
             //25%降到0%
             while (mState == STATE_IDEL && hasDrawn) {
                 try {
-                    Thread.sleep(1);
+                    Thread.sleep(10);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
             }
-
             mCanvas = mHolder.lockCanvas();
-            drawBackGround();
+            drawBackground();
             drawPanel();
             drawGoButton();
             drawAwards();
@@ -204,13 +251,14 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
             LuckyAward award = awards.get(i);
             RectF rectF = blocksArea.get(i);
             String name = award.getName();
-            mAwardPaint.setColor(Color.WHITE);
-            mAwardPaint.setTextSize(Util.dp2px(getContext(), 12));
+            mAwardPaint.setColor(textColor);
+            mAwardPaint.setTextSize(textSize);
             mAwardPaint.setTextAlign(Paint.Align.CENTER);
+            //文字垂直居中
             Paint.FontMetrics fontMetrics = mGoButtonPaint.getFontMetrics();
             float top = fontMetrics.top;
             float bottom = fontMetrics.bottom;
-            float textAreaTop = rectF.bottom - Util.dp2px(getContext(), 24);
+            float textAreaTop = rectF.bottom - textSize * 2f;
             float textAreaCenterY = (rectF.bottom + textAreaTop) / 2;
 
             float baseY = textAreaCenterY - top / 2 - bottom / 2;
@@ -219,9 +267,11 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
             //画奖品图片
             float picTop = rectF.top + Util.dp2px(getContext(), 5);
-            float picHeight = (rectF.bottom - rectF.top) - Util.dp2px(getContext(), 24 + 10);
-            float picLeft = rectF.left + ((rectF.right - rectF.left) - picHeight) / 2 - Util.dp2px(getContext(), 10);
-            mCanvas.drawBitmap(award.getBitmap(), picLeft, picTop, mAwardPaint);
+            float picHeight = (rectF.bottom - rectF.top) - Util.dp2px(getContext(), 24);
+            float picLeft = rectF.left + ((rectF.right - rectF.left) - picHeight) / 2;
+            Rect src = new Rect(0, 0, award.getBitmap().getWidth(), award.getBitmap().getHeight());
+            Rect dst = new Rect((int) picLeft, (int) picTop, (int) (picLeft + picHeight), (int) (picTop + picHeight));
+            mCanvas.drawBitmap(award.getBitmap(), src, dst, mAwardPaint);
         }
         mCanvas.restore();
     }
@@ -240,13 +290,17 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     private void drawGoButton() {
         mCanvas.save();
-        mGoButtonPaint.setColor(Color.RED);
+        if (!enable) {
+            mGoButtonPaint.setColor(Color.GRAY);
+        } else {
+            mGoButtonPaint.setColor(Color.RED);
+        }
         mGoButtonPaint.setStyle(Paint.Style.FILL);
         mCanvas.drawPath(mButtonPath, mGoButtonPaint);
         mGoButtonPaint.setColor(Color.WHITE);
         mGoButtonPaint.setStrokeWidth(5);
         mGoButtonPaint.setTextAlign(Paint.Align.CENTER);
-        mGoButtonPaint.setTextSize(Util.dp2px(getContext(), 20));
+        mGoButtonPaint.setTextSize(textSize);
         Paint.FontMetrics fontMetrics = mGoButtonPaint.getFontMetrics();
         float top = fontMetrics.top;
         float bottom = fontMetrics.bottom;
@@ -259,32 +313,25 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         mCanvas.restore();
     }
 
-    private void drawBackGround() {
-        mCanvas.drawColor(Color.parseColor("#545454"));
+    private void drawBackground() {
+        if (mBg != null) {
+            Rect src = new Rect(0, 0, mBg.getWidth(), mBg.getHeight());
+            Rect dst = new Rect(0, 0, mCanvas.getWidth(), mCanvas.getHeight());
+            mCanvas.drawBitmap(mBg, src, dst, mBlockBgPaint);
+        }
     }
 
     private void drawPanel() {
         mCanvas.save();
         mCanvas.translate(horizontalOffset, verticalOffset);
         for (RectF rect : blocksArea) {
+            //着色器
+            mCanvas.drawRoundRect(rect, 20, 20, mBlockBgPaint);
             mCanvas.drawRoundRect(rect, 20, 20, mBorderPaint);
         }
         mCanvas.restore();
     }
 
-
-    public void setAwards(List<LuckyAward> awards) {
-        if (awards != null && awards.size() > 0) {
-            checkAwardsValid(awards);
-            this.awards = awards;
-            try {
-                fillAwards();
-                generateBlockArea();
-            } catch (CloneNotSupportedException e) {
-                e.printStackTrace();
-            }
-        }
-    }
 
     //矩阵外圈顺时针遍历算法
     private void generateBlockArea() {
@@ -343,12 +390,11 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         }
     }
 
-    public void setAvAward(LuckyAward avAward) {
-        this.avAward = avAward;
-    }
 
-
-    public void luckyGo() {
+    /**
+     * Run the board.
+     */
+    private void luckyGo() {
         currentPosition = 0;
         mState = STATE_RUNNING;
         //由于属性动画中，当达到最终值会立刻跳到下一次循环，所以需要补1
@@ -363,7 +409,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     //补充安慰奖
     private void fillAwards() throws CloneNotSupportedException {
         int awardSize = awards.size();
-        //若正式奖品刚好等于8/12/20时且总概率小于1的话，升级到下一个抽奖规模
+        //1.若正式奖品刚好等于8/12/20时且总概率小于1的话，升级到下一个抽奖规模
         float totalRate = 0;
         for (LuckyAward award : awards) {
             totalRate += award.getRate();
@@ -375,7 +421,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
                 awardSize = 20;
             }
         }
-        //计算安慰奖概率并填充到奖品池
+        //2.计算安慰奖概率并填充到奖品池
         Random random = new Random();
         float rate = computeAvAwardRate(awardSize);
         if (awardSize <= 8) {
@@ -420,12 +466,12 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         for (LuckyAward award : awards) {
             totalRate += award.getRate();
         }
-        if (awardSize < 8) {
-            resultRate = (1 - totalRate) / (8 - awardSize);
-        } else if (awardSize < 12) {
-            resultRate = (1 - totalRate) / (12 - awardSize);
-        } else if (awardSize < 20) {
-            resultRate = (1 - totalRate) / (20 - awardSize);
+        if (awardSize <= 8) {
+            resultRate = (1 - totalRate) / (8 - awards.size());
+        } else if (awardSize <= 12) {
+            resultRate = (1 - totalRate) / (12 - awards.size());
+        } else if (awardSize <= 20) {
+            resultRate = (1 - totalRate) / (20 - awards.size());
         }
         return resultRate;
     }
@@ -444,7 +490,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
                 }
                 break;
             case MotionEvent.ACTION_UP:
-                if (mButtonRegion.contains(x, y) && isButtonDown) {
+                if (mButtonRegion.contains(x, y) && isButtonDown && enable) {
                     if (mState == STATE_IDEL) {
                         onGoButtonClick();
                     } else if (mState == STATE_RUNNING) {
@@ -464,6 +510,11 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     //从当前位置到最终位置的循环,卡在这里
     private void luckyResult() {
+        /*
+        1.取消正在执行的滚动轮盘动画
+        2.开始补偿动画
+        3.补偿动画结束后开始产生及过滚动轮盘动画
+        */
         mRunningAnimator.cancel();
         mState = STATE_RESULT;
         final int result = generateResult();
@@ -524,8 +575,43 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         luckyGo();
     }
 
-    public void setmResultCallback(ResultCallback callback) {
+    public void setAvAward(LuckyAward avAward) {
+        this.avAward = avAward;
+    }
+
+    /**
+     * Set awards.
+     * @param awards
+     */
+    public void setAwards(List<LuckyAward> awards) {
+        if (awards != null && awards.size() > 0) {
+            checkAwardsValid(awards);
+            this.awards = awards;
+            try {
+                fillAwards();
+                generateBlockArea();
+            } catch (CloneNotSupportedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * Set {@link ResultCallback} to the board.
+     *
+     * @param callback
+     */
+    public void setResultCallback(ResultCallback callback) {
         this.mResultCallback = callback;
+    }
+
+    /**
+     * enable or disable board
+     *
+     * @param enable
+     */
+    public void setEnable(boolean enable) {
+        this.enable = enable;
     }
 }
 
