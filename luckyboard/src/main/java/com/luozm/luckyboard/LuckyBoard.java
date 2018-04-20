@@ -18,6 +18,7 @@ import android.graphics.RectF;
 import android.graphics.Region;
 import android.graphics.Shader;
 import android.os.AsyncTask;
+import android.support.annotation.NonNull;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
@@ -35,6 +36,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * Created by cdc4512 on 2018/3/30.
@@ -92,6 +96,8 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private ValueAnimator mResultingAnimator;  //产生结果时的动画
 
     private ResultCallback mResultCallback;
+
+    private ExecutorService executor = Executors.newFixedThreadPool(6);
 
 
     public interface ResultCallback {
@@ -244,7 +250,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private void loadPicture() {
         for (LuckyAward award : awards) {
             ImageLoaderTask task = new ImageLoaderTask(award);
-            task.execute(award.getBitmap());
+            task.executeOnExecutor(executor,award.getBitmap());
             loaderTasks.add(task);
         }
     }
