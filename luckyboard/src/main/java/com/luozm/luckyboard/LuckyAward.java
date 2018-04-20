@@ -8,12 +8,12 @@ import android.graphics.Bitmap;
 
 public class LuckyAward implements Cloneable{
     private String name;
-    private Bitmap bitmap;
+    private String img;
     private float rate;
 
-    public LuckyAward(String name, Bitmap bitmap, float rate) {
+    public LuckyAward(String name, String img, float rate) {
         this.name = name;
-        this.bitmap = bitmap;
+        this.img = img;
         this.rate = rate;
     }
 
@@ -25,12 +25,12 @@ public class LuckyAward implements Cloneable{
         this.name = name;
     }
 
-    public Bitmap getBitmap() {
-        return bitmap;
+    public String getBitmap() {
+        return img;
     }
 
-    public void setBitmap(Bitmap bitmap) {
-        this.bitmap = bitmap;
+    public void setBitmap(String bitmap) {
+        this.img = bitmap;
     }
 
     public float getRate() {
