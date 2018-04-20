@@ -210,9 +210,6 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     public void surfaceDestroyed(SurfaceHolder holder) {
         isDrawing = false;
         hasDrawn = false;
-        mHolder.removeCallback(this);
-        mHolder = null;
-        mCanvas = null;
     }
 
     boolean hasDrawn = false;
@@ -302,6 +299,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         mGoButtonPaint.setStrokeWidth(5);
         mGoButtonPaint.setTextAlign(Paint.Align.CENTER);
         mGoButtonPaint.setTextSize(textSize);
+        //文字垂直居中
         Paint.FontMetrics fontMetrics = mGoButtonPaint.getFontMetrics();
         float top = fontMetrics.top;
         float bottom = fontMetrics.bottom;
