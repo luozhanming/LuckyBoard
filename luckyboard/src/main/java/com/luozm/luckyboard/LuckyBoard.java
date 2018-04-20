@@ -17,6 +17,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Region;
 import android.graphics.Shader;
+import android.os.AsyncTask;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
@@ -24,8 +25,15 @@ import android.view.SurfaceView;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -52,6 +60,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private volatile int currentPosition = -1;
     private int totalSize;  //奖品种类总数
     private boolean enable = true;
+    private boolean imgHasLoad = false;
 
 
     private int blockSize;   //每块奖品占的区域大小宽，高是其3/4
@@ -64,6 +73,8 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private int horizontalPadding;
 
     private volatile List<RectF> blocksArea;   //存储块区域位置
+    private Map<LuckyAward, Bitmap> imgCache;   //奖品图片缓冲区
+    private List<ImageLoaderTask> loaderTasks;   //加载任务
 
 
     private Paint mBorderPaint;
@@ -71,7 +82,6 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private Paint mGoButtonPaint;
     private Paint mAwardHoverPaint;
     private Paint mAwardPaint;
-
 
     private Path mButtonPath;   //中间按钮的Path
     private Region mButtonRegion;
@@ -140,6 +150,9 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         setZOrderOnTop(true);
 
         mHolder.setFormat(PixelFormat.TRANSLUCENT);
+
+        imgCache = new HashMap<>();
+        loaderTasks = new ArrayList<>();
     }
 
     //调整BlcokBg图片的大小以适应着色器
@@ -193,6 +206,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
+        loadPicture();
         isDrawing = true;
         drawThread = new Thread(this);
         drawThread.start();
@@ -210,6 +224,29 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     public void surfaceDestroyed(SurfaceHolder holder) {
         isDrawing = false;
         hasDrawn = false;
+        for (ImageLoaderTask loaderTask : loaderTasks) {
+            loaderTask.cancel(true);
+        }
+        recycleResource();
+    }
+
+    /**
+     * 释放资源
+     */
+    private void recycleResource() {
+        loaderTasks.clear();
+        for (Bitmap bitmap : imgCache.values()) {
+            bitmap.recycle();
+        }
+        imgCache.clear();
+    }
+
+    private void loadPicture() {
+        for (LuckyAward award : awards) {
+            ImageLoaderTask task = new ImageLoaderTask(award);
+            task.execute(award.getBitmap());
+            loaderTasks.add(task);
+        }
     }
 
     boolean hasDrawn = false;
@@ -220,7 +257,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
             //为了在空闲时候不重绘采用下面代码
             //这里要说明一下死循环会导致用户线程CPU高使用率，解决方法是在死循环加sleep(1)。CPU占用从
             //25%降到0%
-            while (mState == STATE_IDEL && hasDrawn) {
+            while (mState == STATE_IDEL && hasDrawn && !imgHasLoad) {
                 try {
                     Thread.sleep(10);
                 } catch (InterruptedException e) {
@@ -236,6 +273,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
                 drawRunning();
             }
             hasDrawn = true;
+            imgHasLoad = false;
             mHolder.unlockCanvasAndPost(mCanvas);
         }
     }
@@ -263,13 +301,18 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
             float x = rectF.centerX();
             mCanvas.drawText(name, x, baseY, mAwardPaint);
 
+            Bitmap bitmap = imgCache.get(award);
+            if (bitmap == null) {
+                continue;
+            }
+
             //画奖品图片
             float picTop = rectF.top + Util.dp2px(getContext(), 5);
             float picHeight = (rectF.bottom - rectF.top) - Util.dp2px(getContext(), 24);
             float picLeft = rectF.left + ((rectF.right - rectF.left) - picHeight) / 2;
-            Rect src = new Rect(0, 0, award.getBitmap().getWidth(), award.getBitmap().getHeight());
+            Rect src = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
             Rect dst = new Rect((int) picLeft, (int) picTop, (int) (picLeft + picHeight), (int) (picTop + picHeight));
-            mCanvas.drawBitmap(award.getBitmap(), src, dst, mAwardPaint);
+            mCanvas.drawBitmap(bitmap, src, dst, mAwardPaint);
         }
         mCanvas.restore();
     }
@@ -580,6 +623,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     /**
      * Set awards.
+     *
      * @param awards
      */
     public void setAwards(List<LuckyAward> awards) {
@@ -611,6 +655,59 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
      */
     public void setEnable(boolean enable) {
         this.enable = enable;
+    }
+
+
+    class ImageLoaderTask extends AsyncTask<String, Integer, Bitmap> {
+
+        private LuckyAward award;
+
+
+        public ImageLoaderTask(LuckyAward award) {
+            this.award = award;
+        }
+
+        @Override
+        protected void onPostExecute(Bitmap bitmap) {
+            super.onPostExecute(bitmap);
+            imgCache.put(award, bitmap);
+            imgHasLoad = true;
+        }
+
+        @Override
+        protected Bitmap doInBackground(String... awards) {
+            Bitmap result = null;
+            InputStream is = null;
+            HttpURLConnection connection =null;
+            try {
+                URL url = new URL(awards[0]);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.connect();
+                is = connection.getInputStream();
+                int code = connection.getResponseCode();
+                if (code == 200) {
+                    result = BitmapFactory.decodeStream(is);
+                }
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    is.close();
+                    connection.disconnect();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+            return result;
+        }
+
+        @Override
+        protected void onCancelled() {
+            super.onCancelled();
+            award = null;
+        }
     }
 }
 
