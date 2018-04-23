@@ -1,6 +1,7 @@
 package com.luozm.luckyboarddemo;
 
 import android.content.Context;
+import android.content.Intent;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 
@@ -20,7 +21,5 @@ public class ExampleInstrumentedTest {
     public void useAppContext() throws Exception {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getTargetContext();
-
-        assertEquals("com.luozm.luckyboarddemo", appContext.getPackageName());
     }
 }

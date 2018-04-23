@@ -7,11 +7,12 @@
     android:orientation="vertical"
     tools:context="com.luozm.luckyboarddemo.MainActivity">
 
-   <com.luozm.luckyboard.LuckyBoard
-       android:id="@+id/luckyboard"
-       android:layout_gravity="center"
-       app:blockSize="80dp"
-       android:layout_width="wrap_content"
-       android:layout_height="wrap_content"/>
+    <com.luozm.luckyboard.LuckyBoard
+        android:id="@+id/luckyboard"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="5dp"
+        app:blockSize="80dp" />
 
 </LinearLayout>

@@ -137,8 +137,8 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         mHolder.addCallback(this);
         textSize = (int) (blockSize / 8f);
         gapSize = (int) (blockSize / 12f);
-        verticalPadding = Util.dp2px(getContext(), 0);
-        horizontalPadding = Util.dp2px(getContext(), 0);
+        verticalPadding = Util.dp2px(getContext(), 5);
+        horizontalPadding = Util.dp2px(getContext(), 5);
 
         mBorderPaint = new Paint();
         mBorderPaint.setStrokeWidth(3);
@@ -234,6 +234,8 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
             loaderTask.cancel(true);
         }
         recycleResource();
+        mCanvas = null;
+        mHolder = null;
     }
 
     /**
@@ -250,7 +252,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
     private void loadPicture() {
         for (LuckyAward award : awards) {
             ImageLoaderTask task = new ImageLoaderTask(award);
-            task.executeOnExecutor(executor,award.getBitmap());
+            task.executeOnExecutor(executor, award.getBitmap());
             loaderTasks.add(task);
         }
     }
@@ -270,17 +272,22 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
                     e.printStackTrace();
                 }
             }
-            mCanvas = mHolder.lockCanvas();
-            drawBackground();
-            drawPanel();
-            drawGoButton();
-            drawAwards();
-            if (currentPosition != -1) {
-                drawRunning();
+            try {
+                mCanvas = mHolder.lockCanvas();
+                drawBackground();
+                drawPanel();
+                drawGoButton();
+                drawAwards();
+                if (currentPosition != -1) {
+                    drawRunning();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                hasDrawn = true;
+                imgHasLoad = false;
+                mHolder.unlockCanvasAndPost(mCanvas);
             }
-            hasDrawn = true;
-            imgHasLoad = false;
-            mHolder.unlockCanvasAndPost(mCanvas);
         }
     }
 
@@ -684,7 +691,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         protected Bitmap doInBackground(String... awards) {
             Bitmap result = null;
             InputStream is = null;
-            HttpURLConnection connection =null;
+            HttpURLConnection connection = null;
             try {
                 URL url = new URL(awards[0]);
                 connection = (HttpURLConnection) url.openConnection();
