@@ -18,7 +18,6 @@ import android.graphics.RectF;
 import android.graphics.Region;
 import android.graphics.Shader;
 import android.os.AsyncTask;
-import android.support.annotation.NonNull;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
@@ -26,6 +25,7 @@ import android.view.SurfaceView;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -38,7 +38,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 
 /**
  * Created by cdc4512 on 2018/3/30.
@@ -97,7 +96,7 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
 
     private ResultCallback mResultCallback;
 
-    private ExecutorService executor = Executors.newFixedThreadPool(6);
+    private ExecutorService executor = Executors.newFixedThreadPool(4);
 
 
     public interface ResultCallback {
@@ -531,7 +530,6 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         return resultRate;
     }
 
-
     private boolean isButtonDown;
 
     @Override
@@ -690,16 +688,23 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
         @Override
         protected Bitmap doInBackground(String... awards) {
             Bitmap result = null;
-            InputStream is = null;
+            InputStream is = null, cloneIs = null;
             HttpURLConnection connection = null;
             try {
-                URL url = new URL(awards[0]);
+                URL url = new URL(award.getBitmap());
                 connection = (HttpURLConnection) url.openConnection();
                 connection.connect();
                 is = connection.getInputStream();
                 int code = connection.getResponseCode();
                 if (code == 200) {
-                    result = BitmapFactory.decodeStream(is);
+                    byte[] bytes = readStream2Byte(is);
+                    BitmapFactory.Options options = new BitmapFactory.Options();
+                    options.inJustDecodeBounds = true;
+                    result = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+                    int sampleRate = computeSampleRate(options.outWidth, options.outHeight);
+                    options.inJustDecodeBounds = false;
+                    options.inSampleSize = sampleRate;
+                    result = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
                 }
             } catch (MalformedURLException e) {
                 e.printStackTrace();
@@ -714,6 +719,37 @@ public class LuckyBoard extends SurfaceView implements SurfaceHolder.Callback, R
                 }
             }
             return result;
+        }
+
+        private byte[] readStream2Byte(InputStream is) {
+            if (is == null) {
+                return null;
+            }
+            byte[] buffer = new byte[1024];
+            int len = -1;
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try {
+                while ((len = is.read(buffer)) != -1) {
+                    baos.write(buffer, 0, len);
+                }
+                return baos.toByteArray();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        private int computeSampleRate(int width, int height) {
+            int sampleSize = 1;
+            RectF rectF = blocksArea.get(0);
+            int blockWidth = (int) (rectF.right - rectF.left);
+            int blockHeight = (int) (rectF.bottom - rectF.top);
+            while (width >= blockWidth || height >= blockHeight) {
+                sampleSize *= 2;
+                width /= 2;
+                height /= 2;
+            }
+            return sampleSize;
         }
 
         @Override
